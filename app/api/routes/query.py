@@ -47,6 +47,7 @@ class CompareRequest(BaseModel):
 class SourceChunk(BaseModel):
     text:        str
     document_id: Optional[str]
+    filename:    Optional[str] = None
     page_number: Optional[int]
     score:       float
     chunk_index: Optional[int]
@@ -70,6 +71,7 @@ class QueryResponse(BaseModel):
     latency_ms: Optional[int]   = None
     grounded:  Optional[bool]   = None
     useful:    Optional[bool]   = None
+    confidence: Optional[str]   = "medium"
 
 
 class DifferenceItem(BaseModel):
@@ -96,6 +98,7 @@ def _hits_to_sources(hits: list[dict]) -> List[SourceChunk]:
         SourceChunk(
             text        = h["text"],
             document_id = h.get("document_id"),
+            filename    = h.get("filename"),
             page_number = h.get("page_number"),
             score       = round(h.get("score", 0.0), 4),
             chunk_index = h.get("chunk_index"),
@@ -175,25 +178,68 @@ async def query(req: QueryRequest):
     elif req.document_id:
         doc_ids = [req.document_id]
 
-    # Simple streaming mode (bypass agent graph for speed)
     if req.stream:
-        vec  = embed_query(req.question)
-        hits = similarity_search(embed_query(req.question), top_k=req.top_k,
-                                 document_id=doc_ids[0] if doc_ids else None)
-        if not hits:
-            raise HTTPException(404, "No relevant chunks found. Ingest a document first.")
-        context = "\n\n---\n\n".join(f"[{i+1}]\n{h['text']}" for i, h in enumerate(hits))
-        llm     = get_llm_client()
-
+        import queue
+        import json
+        
+        q = queue.Queue()
+        
+        def _stream_callback(token: str):
+            q.put({"type": "token", "content": token})
+            
         async def _streamer():
-            for delta in llm.stream(
-                messages=[{"role": "user", "content": req.question}],
-                system_prompt=RAG_SYSTEM_PROMPT.format(context=context),
-                temperature=req.temperature,
-            ):
-                yield delta
+            loop = asyncio.get_running_loop()
+            
+            def _run_and_notify():
+                try:
+                    from app.agents.graph import run_query
+                    res = run_query(
+                        query=req.question,
+                        session_id=req.session_id,
+                        document_ids=doc_ids,
+                        top_k=req.top_k,
+                        stream_callback=_stream_callback
+                    )
+                    
+                    llm = get_llm_client()
+                    latency = int((time.monotonic() - t0) * 1000)
+                    
+                    final_res = {
+                        "answer": res.get("answer", ""),
+                        "summary": res.get("summary", ""),
+                        "sources": [s.model_dump() for s in _hits_to_sources(res.get("sources", []))],
+                        "alerts": [a.model_dump() for a in _alerts_to_out(res.get("alerts", []))],
+                        "model": llm.model,
+                        "mode": "query",
+                        "session_id": req.session_id,
+                        "latency_ms": latency,
+                        "confidence": res.get("metadata", {}).get("confidence", "medium")
+                    }
+                    
+                    q.put({"type": "done", "result": final_res})
+                except Exception as e:
+                    logger.error("stream.error", exc_info=True)
+                    q.put({"type": "error", "error": str(e)})
 
-        return StreamingResponse(_streamer(), media_type="text/plain")
+            task = loop.run_in_executor(None, _run_and_notify)
+            
+            while True:
+                try:
+                    # Non-blocking get with timeout to allow checking if task died
+                    item = await asyncio.to_thread(q.get, timeout=0.1)
+                    if item["type"] == "token":
+                        yield f"data: {json.dumps(item)}\n\n"
+                    elif item["type"] == "done":
+                        yield f"data: {json.dumps(item)}\n\n"
+                        break
+                    elif item["type"] == "error":
+                        yield f"data: {json.dumps(item)}\n\n"
+                        break
+                except queue.Empty:
+                    if task.done():
+                        break
+
+        return StreamingResponse(_streamer(), media_type="text/event-stream")
 
     # Full agent graph
     from app.agents.graph import run_query
@@ -235,6 +281,7 @@ async def query(req: QueryRequest):
         mode       = "query",
         session_id = req.session_id,
         latency_ms = latency,
+        confidence = result.get("metadata", {}).get("confidence", "medium"),
     )
 
 

@@ -109,12 +109,17 @@ def _save_alerts(alerts: list[dict], session_id: str, document_ids: list[str]) -
 # Node 1 — Retriever Agent
 # ─────────────────────────────────────────────────────────────────────────────
 
-def node_retrieve(state: dict) -> dict:
+def node_retrieve(state: dict, config: dict = None) -> dict:
     """
     Embed the query and fetch top-K chunks from Qdrant.
     In compare mode, fetches chunks for EACH document_id separately
     and merges them (up to top_k per doc).
     """
+    if config and "configurable" in config:
+        cb = config["configurable"].get("stream_callback")
+        if cb:
+            cb("__PHASE__:Retrieving relevant chunks...")
+
     query       = state["query"]
     doc_ids     = state.get("document_ids") or []
     top_k       = state.get("top_k", 5)
@@ -152,7 +157,7 @@ def node_retrieve(state: dict) -> dict:
 # Node 2 — Summarizer Agent
 # ─────────────────────────────────────────────────────────────────────────────
 
-def node_summarize(state: dict) -> dict:
+def node_summarize(state: dict, config: dict = None) -> dict:
     """
     Condenses retrieved chunks into a structured, grounded summary.
     Also produces a direct answer to the user's query.
@@ -168,51 +173,62 @@ Given retrieved document chunks, your goal is to provide a comprehensive, deeply
 You must:
 1. Synthesize the provided context to form a complete and thoughtful answer. Do NOT just copy and paste sentences; explain the concepts, implications, and context.
 2. If the context contains complex ideas, break them down clearly.
-3. Produce a structured summary of the key points.
-4. If the answer is completely absent from the context, state "NOT_IN_CONTEXT".
+3. If the answer is completely absent from the context, state "NOT_IN_CONTEXT".
 
-Always cite page numbers like [Page N] when available, but weave them naturally into your comprehensive explanation. Provide meaningful insights rather than robotic repetition."""
+Structure your response using the following Markdown headers:
+**Reasoning:**
+(explain your thought process and synthesis)
 
-    prompt = f"""User question: {query}
+**Summary:**
+(3-5 detailed bullet points summarising key information)
 
-Retrieved context:
-{context}
+**Answer:**
+(detailed comprehensive answer)
 
-Respond in this exact JSON format:
-{{
-  "reasoning": "<explain your thought process and how you synthesize the context to answer the query>",
-  "answer": "<detailed, comprehensive answer synthesizing the context in depth>",
-  "summary": "<3-5 detailed bullet points summarising the key information>",
-  "confidence": "high|medium|low"
-}}"""
+Always cite page numbers like [Page N] when available, but weave them naturally into your comprehensive explanation."""
+
+    prompt = f"User question: {query}\n\nRetrieved context:\n{context}"
 
     logger.info("agent.summarize.start")
-    result = _llm_json(prompt, SYSTEM, max_tokens=2048, temperature=0.3)
-
-    reasoning = result.get("reasoning", "")
-    answer  = result.get("answer", "")
-    summary = result.get("summary", "")
-    conf    = result.get("confidence", "medium")
-
-    # Fallback: if JSON failed, use raw text
-    if not answer:
-        llm = get_llm_client()
-        answer = llm.chat(
-            messages=[{"role": "user", "content": query}],
-            system_prompt=f"Answer comprehensively using this context:\n{context}",
-            temperature=0.3,
-            max_tokens=2048,
-        )
-        summary = answer
+    
+    stream_cb = None
+    if config and "configurable" in config:
+        stream_cb = config.get("configurable", {}).get("stream_callback")
+        if stream_cb:
+            stream_cb("__PHASE__:Reasoning over context...")
         
-    final_response = f"**Reasoning:**\n{reasoning}\n\n**Answer:**\n{answer}" if reasoning else answer
+    llm = get_llm_client()
+    final_response = ""
+    
+    if stream_cb:
+        try:
+            for token in llm.stream([{"role": "user", "content": prompt}], system_prompt=SYSTEM, temperature=0.3, max_tokens=2048):
+                final_response += token
+                stream_cb(token)
+        except Exception as e:
+            logger.error(f"agent.summarize.error: {e}")
+            final_response = f"An error occurred during summarization: {e}"
+    else:
+        try:
+            final_response = llm.chat([{"role": "user", "content": prompt}], system_prompt=SYSTEM, temperature=0.3, max_tokens=2048)
+        except Exception as e:
+            logger.error(f"agent.summarize.error: {e}")
+            final_response = f"An error occurred during summarization: {e}"
 
-    logger.info("agent.summarize.done", confidence=conf)
+    logger.info("agent.summarize.done")
+    
+    confidence = "high"
+    retrieved_chunks = state.get("retrieved_chunks", [])
+    if "NOT_IN_CONTEXT" in final_response:
+        confidence = "low"
+        retrieved_chunks = []  # Clear sources if the answer is not in context
+
     return {
-        "summary":        summary,
-        "answer":         answer,
+        "summary":        final_response,
+        "answer":         final_response,
         "final_response": final_response,
-        "metadata":       {**state.get("metadata", {}), "confidence": conf},
+        "retrieved_chunks": retrieved_chunks,
+        "metadata":       {**state.get("metadata", {}), "confidence": confidence},
     }
 
 
@@ -220,7 +236,7 @@ Respond in this exact JSON format:
 # Node 3 — Comparator Agent
 # ─────────────────────────────────────────────────────────────────────────────
 
-def node_compare(state: dict) -> dict:
+def node_compare(state: dict, config: dict = None) -> dict:
     """
     Reasons across chunks from two documents.
     Produces a structured diff: similarities, differences, and key distinctions.
@@ -245,49 +261,45 @@ def node_compare(state: dict) -> dict:
 
     SYSTEM = """You are an expert document comparison specialist and analytical thinker.
 You will receive content from two documents and must produce a deeply reasoned, structured, and factual comparison.
-Focus on factual differences, subtle nuances, and strategic implications rather than just listing facts. Provide meaningful insights."""
+Focus on factual differences, subtle nuances, and strategic implications rather than just listing facts. Provide meaningful insights.
 
-    prompt = f"""Compare Document A and Document B based on this focus: {query}
+Structure your response using the following Markdown headers:
+**Reasoning:**
+(analyze the nuances between the documents)
 
-=== DOCUMENT A (ID: {doc_a_id or 'unknown'}) ===
-{ctx_a}
+**Similarities:**
+(bullet points of similarities)
 
-=== DOCUMENT B (ID: {doc_b_id or 'unknown'}) ===
-{ctx_b}
+**Differences:**
+(bullet points of differences)
 
-Respond in this exact JSON format:
-{{
-  "reasoning": "<explain your thought process and analyze the nuances between the documents>",
-  "similarities": ["<detailed point 1>", "<detailed point 2>"],
-  "differences": [
-    {{"aspect": "<aspect>", "doc_a": "<what doc A says>", "doc_b": "<what doc B says>"}}
-  ],
-  "summary": "<comprehensive multi-sentence overall comparison>",
-  "recommendation": "<which document is more complete/accurate and why>"
-}}"""
+**Recommendation:**
+(which document is more complete/accurate and why)"""
+
+    prompt = f"Compare Document A and Document B based on this focus: {query}\n\n=== DOCUMENT A (ID: {doc_a_id or 'unknown'}) ===\n{ctx_a}\n\n=== DOCUMENT B (ID: {doc_b_id or 'unknown'}) ===\n{ctx_b}"
 
     logger.info("agent.compare.start", doc_a=doc_a_id, doc_b=doc_b_id)
-    result = _llm_json(prompt, SYSTEM, max_tokens=1024, temperature=0.3)
-
-    if not result:
-        result = {
-            "reasoning":       "",
-            "similarities":    [],
-            "differences":     [],
-            "summary":         "Comparison could not be completed.",
-            "recommendation":  "",
-        }
-
-    logger.info("agent.compare.done", diffs=len(result.get("differences", [])))
     
-    reasoning = result.get("reasoning", "")
-    summary = result.get("summary", "")
-    final_resp = f"**Reasoning:**\n{reasoning}\n\n**Summary:**\n{summary}" if reasoning else summary
+    stream_cb = None
+    if config and "configurable" in config:
+        stream_cb = config.get("configurable", {}).get("stream_callback")
+        
+    llm = get_llm_client()
+    final_response = ""
+    
+    if stream_cb:
+        for token in llm.stream([{"role": "user", "content": prompt}], system_prompt=SYSTEM, temperature=0.3, max_tokens=1024):
+            final_response += token
+            stream_cb(token)
+    else:
+        final_response = llm.chat([{"role": "user", "content": prompt}], system_prompt=SYSTEM, temperature=0.3, max_tokens=1024)
+
+    logger.info("agent.compare.done")
     
     return {
-        "comparison":     result,
-        "answer":         summary,
-        "final_response": final_resp,
+        "comparison":     {"summary": final_response},
+        "answer":         final_response,
+        "final_response": final_response,
     }
 
 
@@ -295,7 +307,7 @@ Respond in this exact JSON format:
 # Node 4 — Action Agent
 # ─────────────────────────────────────────────────────────────────────────────
 
-def node_action(state: dict) -> dict:
+def node_action(state: dict, config: dict = None) -> dict:
     """
     Reviews the summary/comparison output and flags:
       - Anomalies (unusual or unexpected content)
@@ -307,6 +319,11 @@ def node_action(state: dict) -> dict:
     8GB VRAM: receives condensed text (summary/comparison), not raw chunks.
     max_tokens=512 — this is a classification/flagging task, not generation.
     """
+    if config and "configurable" in config:
+        cb = config["configurable"].get("stream_callback")
+        if cb:
+            cb("__PHASE__:Running audit checks...")
+
     mode        = state.get("mode", "query")
     session_id  = state.get("session_id", str(uuid.uuid4()))
     doc_ids     = state.get("document_ids", [])

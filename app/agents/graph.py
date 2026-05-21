@@ -273,11 +273,14 @@ def get_graph():
 # Public entry points
 # ─────────────────────────────────────────────────────────────────────────────
 
+from typing import Annotated, List, Optional, TypedDict, Callable
+
 def run_query(
     query: str,
     session_id: Optional[str] = None,
     document_ids: Optional[List[str]] = None,
     top_k: int = 5,
+    stream_callback: Optional[Callable[[str], None]] = None,
 ) -> dict:
     """Execute the query pipeline (retrieve → summarize → action)."""
     session_id = session_id or str(uuid.uuid4())
@@ -302,7 +305,7 @@ def run_query(
         "metadata":         {},
         "messages":         [],
     }
-    config = {"configurable": {"thread_id": session_id}}
+    config = {"configurable": {"thread_id": session_id, "stream_callback": stream_callback}}
     result = get_graph().invoke(initial, config=config)
     return {
         "answer":   result.get("final_response") or result.get("answer", ""),
@@ -317,6 +320,7 @@ def run_compare(
     document_ids: List[str],
     query: str = "Compare these two documents.",
     session_id: Optional[str] = None,
+    stream_callback: Optional[Callable[[str], None]] = None,
 ) -> dict:
     """Execute the compare pipeline (retrieve → compare → action)."""
     session_id = session_id or str(uuid.uuid4())
@@ -341,7 +345,7 @@ def run_compare(
         "metadata":         {},
         "messages":         [],
     }
-    config = {"configurable": {"thread_id": session_id}}
+    config = {"configurable": {"thread_id": session_id, "stream_callback": stream_callback}}
     result = get_graph().invoke(initial, config=config)
     return {
         "comparison": result.get("comparison", {}),
