@@ -1,4 +1,4 @@
-# MADIS: Multi-Agent Document Intelligence System 🧠
+# MADIS: Multi-Agent Document Intelligence System
 
 Welcome to **MADIS**—a production-grade, fully local, multi-agent AI system designed to intelligently read, summarize, compare, and audit your documents. 
 
@@ -6,9 +6,9 @@ Whether you are completely new to Artificial Intelligence or an experienced engi
 
 ---
 
-## 📖 Table of Contents
+## Table of Contents
 
-1. [What is MADIS? (For Beginners)](#what-is-madis-for-beginners)
+1. [What is MADIS?] (#what-is-madis)
 2. [How is MADIS different from ChatGPT or Gemini?](#how-is-madis-different-from-chatgpt-or-gemini)
 3. [The Core Philosophy](#the-core-philosophy)
 4. [System Architecture & The Pipeline](#system-architecture--the-pipeline)
@@ -23,7 +23,7 @@ Whether you are completely new to Artificial Intelligence or an experienced engi
 
 ---
 
-## 1. What is MADIS? (For Beginners)
+## 1. What is MADIS?
 
 Imagine you have hundreds of legal contracts, research papers, or financial reports. Reading them, finding specific clauses, comparing two different versions of a contract, and spotting anomalies (like a missing signature or a contradictory date) would take a human days or weeks.
 
