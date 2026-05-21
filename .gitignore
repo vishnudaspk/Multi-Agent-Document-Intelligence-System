@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+*.whl
+.venv/
+venv/
+env/
+
+# Environment
+.env
+*.env.local
+
+# Logs
+logs/
+*.log
+nohup.out
+
+# Data (local only)
+data/uploads/*
+data/processed/*
+!data/uploads/.gitkeep
+!data/processed/.gitkeep
+
+# Docker volumes (managed by Docker)
+docker-volumes/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Alembic (keep versions dir, ignore auto-generated cache)
+app/db/migrations/__pycache__/

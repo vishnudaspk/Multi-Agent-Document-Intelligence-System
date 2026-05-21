@@ -1,0 +1,121 @@
+
+services:
+  # ─────────────────────────────────────────────
+  # Qdrant Vector DB
+  # ─────────────────────────────────────────────
+  qdrant:
+    image: qdrant/qdrant:v1.9.2
+    container_name: madis_qdrant
+    ports:
+      - "6333:6333"   # REST API
+      - "6334:6334"   # gRPC
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      QDRANT__SERVICE__GRPC_PORT: 6334
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:6333/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─────────────────────────────────────────────
+  # PostgreSQL
+  # ─────────────────────────────────────────────
+  postgres:
+    image: postgres:16.3-alpine
+    container_name: madis_postgres
+    ports:
+      - "5432:5432"   # [CONFIGURE THIS] change host port if 5432 is already in use
+    environment:
+      POSTGRES_USER: madis_user         # [CONFIGURE THIS]
+      POSTGRES_PASSWORD: madis_pass     # [CONFIGURE THIS] use a strong password
+      POSTGRES_DB: madis_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U madis_user -d madis_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─────────────────────────────────────────────
+  # Redis (Celery broker + result backend)
+  # ─────────────────────────────────────────────
+  redis:
+    image: redis:7.2.5-alpine
+    container_name: madis_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --save 60 1 --loglevel warning
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─────────────────────────────────────────────
+  # MLflow tracking server
+  # Stores runs in a local SQLite DB + artefacts
+  # on the host volume.
+  # UI: http://localhost:5000
+  # ─────────────────────────────────────────────
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.14.1
+    container_name: madis_mlflow
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow_data:/mlflow
+    command: >
+      mlflow server
+        --backend-store-uri sqlite:////mlflow/mlflow.db
+        --default-artifact-root /mlflow/artifacts
+        --host 0.0.0.0
+        --port 5000
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:5000/\")' || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
+
+  # ─────────────────────────────────────────────
+  # Ollama (optional — skip if using LMStudio)
+  # Uncomment this block if you want Ollama in Docker.
+  # WARNING: GPU passthrough requires Docker Desktop >= 4.26
+  # or WSL2 with NVIDIA Container Toolkit installed.
+  # For native Windows, run Ollama directly: https://ollama.com/download/windows
+  # ─────────────────────────────────────────────
+  # ollama:
+  #   image: ollama/ollama:0.1.44
+  #   container_name: madis_ollama
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: 1
+  #             capabilities: [gpu]
+  #   restart: unless-stopped
+
+volumes:
+  qdrant_data:
+  postgres_data:
+  redis_data:
+  mlflow_data:
+  # ollama_data:
+
+networks:
+  default:
+    name: madis_network
