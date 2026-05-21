@@ -9,7 +9,7 @@
 
 <hr />
 
-## 📖 Overview
+## Overview
 
 **MADIS** represents a paradigm shift in how organizations interact with unstructured data. Engineered to operate entirely on consumer-grade hardware without sacrificing analytical rigor, MADIS acts as a private, high-performance team of AI agents living within your local infrastructure.
 
@@ -21,7 +21,7 @@ Whether dealing with dense legal contracts, intricate financial statements, or v
 - **Multi-Agent Orchestration:** MADIS leverages a LangGraph-powered network of specialized AI agents—including Retrievers, Summarizers, Comparators, and Auditors—to fact-check and validate outputs before they reach you.
 - **Consumer Hardware Optimized:** Specifically tuned to run advanced reasoning on local hardware (e.g., Nvidia RTX 4060 8GB VRAM) using precise memory management, model quantization (`Q4_K_M`), and sequential processing.
 
-## 🏗️ System Architecture
+## System Architecture
 
 MADIS is constructed as a distributed, microservice-based application, ensuring scalability and fault tolerance.
 
@@ -36,12 +36,12 @@ MADIS is constructed as a distributed, microservice-based application, ensuring 
 
 ### 3. The Multi-Agent Cognitive Engine
 User queries are routed through an intricate cyclic workflow managed by **LangGraph**:
-- 🕵️‍♂️ **Retriever Agent:** Identifies and extracts the most relevant document chunks from the vector space.
-- 📝 **Summarizer Agent:** Synthesizes the extracted chunks into a concise, strictly formatted response.
-- ⚖️ **Comparator Agent:** Conducts side-by-side analyses of different documents, highlighting similarities and discrepancies.
-- 🚨 **Auditor Agent:** Acts as a compliance guardrail, rigorously checking the generated responses against the source text to flag anomalies, contradictions, or hallucinations, which are then logged to a **PostgreSQL** database.
+-  **Retriever Agent:** Identifies and extracts the most relevant document chunks from the vector space.
+-  **Summarizer Agent:** Synthesizes the extracted chunks into a concise, strictly formatted response.
+-  **Comparator Agent:** Conducts side-by-side analyses of different documents, highlighting similarities and discrepancies.
+-  **Auditor Agent:** Acts as a compliance guardrail, rigorously checking the generated responses against the source text to flag anomalies, contradictions, or hallucinations, which are then logged to a **PostgreSQL** database.
 
-## 🛠️ Technology Stack
+##  Technology Stack
 
 | Component | Technology | Description |
 |-----------|------------|-------------|
@@ -53,10 +53,10 @@ User queries are routed through an intricate cyclic workflow managed by **LangGr
 | **Observability** | MLflow | Comprehensive query tracking, latency monitoring, and telemetry. |
 | **Infrastructure**| Docker | Containerized, easily deployable microservices. |
 
-## 🚀 Getting Started
+##  Getting Started
 
 Ready to deploy MADIS? Please refer to the official [Installation Guide](INSTALLATION.md) for detailed, step-by-step instructions on environment setup, Docker orchestration, and LLM configuration.
 
-## 🗺️ Future Vision
+##  Future Vision
 
 Discover how MADIS is evolving towards multi-modal intelligence, enterprise compliance, and distributed GPU clusters in our [Architecture & Roadmap](ROADMAP.md).
