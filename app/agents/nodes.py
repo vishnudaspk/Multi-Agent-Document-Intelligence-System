@@ -45,12 +45,18 @@ SyncSession   = sessionmaker(bind=_sync_engine, expire_on_commit=False)
 def _llm_json(prompt: str, system: str, max_tokens: int = 512, temperature: float = 0.1) -> dict:
     """Call LLM, expect JSON back. Gracefully falls back to {} on parse error."""
     llm = get_llm_client()
-    raw = llm.chat(
-        messages=[{"role": "user", "content": prompt}],
-        system_prompt=system,
-        temperature=temperature,
-        max_tokens=max_tokens,
-    )
+    try:
+        raw = llm.chat(
+            messages=[{"role": "user", "content": prompt}],
+            system_prompt=system,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+    except Exception as e:
+        logger.error("agent.llm_json.error", error=str(e))
+        if "Connection" in type(e).__name__ or "Connection" in str(e):
+            logger.error("agent.llm_json.connection_error: LLM backend not reachable — is Ollama running?")
+        return {}
     raw = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
     try:
         return json.loads(raw)
@@ -207,13 +213,20 @@ Always cite page numbers like [Page N] when available, but weave them naturally 
                 stream_cb(token)
         except Exception as e:
             logger.error(f"agent.summarize.error: {e}")
-            final_response = f"An error occurred during summarization: {e}"
+            if "Connection" in type(e).__name__ or "Connection" in str(e):
+                final_response = "⚠️ LLM backend is not reachable. Please ensure Ollama is running (`ollama serve`) and the model is available."
+                stream_cb(final_response)
+            else:
+                final_response = f"An error occurred during summarization: {e}"
     else:
         try:
             final_response = llm.chat([{"role": "user", "content": prompt}], system_prompt=SYSTEM, temperature=0.3, max_tokens=2048)
         except Exception as e:
             logger.error(f"agent.summarize.error: {e}")
-            final_response = f"An error occurred during summarization: {e}"
+            if "Connection" in type(e).__name__ or "Connection" in str(e):
+                final_response = "⚠️ LLM backend is not reachable. Please ensure Ollama is running (`ollama serve`) and the model is available."
+            else:
+                final_response = f"An error occurred during summarization: {e}"
 
     logger.info("agent.summarize.done")
     
